@@ -35,126 +35,143 @@ export default function EditPassword() {
 
   const handleNext = async () => {
     setErrorMessage('');
-
-    // Step 1: Request OTP
+  
+    // STEP 1: OTP tələb et
     if (currentStep === 1) {
       if (!mobileNumber.match(/^\d{9}$/)) {
         setErrorMessage("Mobil nömrə düzgün daxil edilməyib. Nümunə: 501234567.");
         return;
       }
-
+  
       try {
         const response = await fetch(`${API_BASE_URL}/password/reset/request/`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            mobile_number: `${mobileNumber.trim()}`
-          })
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mobile_number: mobileNumber.trim() }),
         });
-
+  
         const data = await response.json();
         console.log("OTP Request Response:", data);
-
+  
         if (response.ok) {
           setCurrentStep(2);
           setCountdown(59);
           setIsCountingDown(true);
-          setErrorMessage('');
         } else {
-          // Attempt to extract specific error message from backend
-          const serverErrorMessage = data.detail ||
-                                     (data.mobile_number && data.mobile_number[0]) ||
-                                     JSON.stringify(data);
-          setErrorMessage(`Bu telefon nömrəsi ilə istifadəçi tapılmadı`);
+          setErrorMessage(data.detail || "Bu telefon nömrəsi ilə istifadəçi tapılmadı");
         }
       } catch (error) {
         setErrorMessage("Şəbəkə xətası. İnternet bağlantınızı yoxlayın.");
         console.error("Server error during OTP request:", error);
       }
     }
-
-    // Step 2: Verify OTP
+  
+    // STEP 2: OTP təsdiqlə və tokeni al
     else if (currentStep === 2) {
       const enteredOtp = otpCode.join('');
-
+  
       if (enteredOtp.length !== 6 || !/^\d+$/.test(enteredOtp)) {
         setErrorMessage("Zəhmət olmasa 6 rəqəmli OTP kodunu düzgün daxil edin.");
         return;
       }
-
+  
       try {
         const response = await fetch(`${API_BASE_URL}/password/otp/verify/`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            mobile_number: `${mobileNumber.trim()}`, // Ensure +994 prefix
-            otp_code: enteredOtp
-          })
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mobile_number: mobileNumber.trim(), otp_code: enteredOtp }),
         });
-
+  
         const data = await response.json();
         console.log("OTP Verify Response:", data);
-
-        if (response.ok && data.token) { // Check if 'token' property exists
+  
+        if (response.ok && data.token) {
           localStorage.setItem("reset_token", data.token);
-          setTemporaryToken(data.token); // Store the token in state
+          setTemporaryToken(data.token);
           setCurrentStep(3);
           setIsCountingDown(false);
-          setErrorMessage(''); // Clear message on success
         } else {
-          const serverErrorMessage = data.detail ||
-                                     (data.otp_code && data.otp_code[0]) ||
-                                     JSON.stringify(data);
-          setErrorMessage(`Yanlış və ya vaxtı keçmiş OTP kodu`);
+          setErrorMessage(data.detail || "Yanlış və ya vaxtı keçmiş OTP kodu");
         }
       } catch (error) {
         setErrorMessage("Şəbəkə xətası. İnternet bağlantınızı yoxlayın.");
         console.error("Server error during OTP verification:", error);
       }
     }
+  
+   // STEP 3: Yeni şifrəni təsdiqlə
+else if (currentStep === 3) {
+  setErrorMessage('');
 
-    // Step 3: Confirm New Password
-    else if (currentStep === 3) {
-      const token = temporaryToken || localStorage.getItem("reset_token");
-      console.log("Token value before Step 3 API call:", token);
-    
-      if (!token) {
-        setErrorMessage("Token tapılmadı. OTP mərhələsini yenidən keçin.");
-        setCurrentStep(1);
-        localStorage.removeItem("reset_token");
-        return;
-      }
-    
-      try {
-        const response = await fetch(`${API_BASE_URL}/password/reset/confirm/`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            token: token,
-            new_password: newPassword,
-            new_password_two: confirmNewPassword,
-          }),
-        });
-    
-        if (response.ok) {
-          showSuccessPopup(true);
-        } else {
-          const errorData = await response.json();
-          setErrorMessage(errorData.detail || "Şifrə dəyişdirilmə zamanı xəta baş verdi.");
-        }
-      } catch (error) {
-        console.log("Uğurlu deyil!", error);
-        setErrorMessage("Şifrə dəyişdirilmə zamanı şəbəkə xətası baş verdi.");
-      }
+  const token = temporaryToken || localStorage.getItem("reset_token");
+  console.log("Token to be used:", token);
+
+  if (!token) {
+    setErrorMessage("Token tapılmadı. OTP mərhələsini yenidən keçin.");
+    setCurrentStep(1);
+    localStorage.removeItem("reset_token");
+    return;
+  }
+
+  if (!newPassword || !confirmNewPassword) {
+    setErrorMessage("Zəhmət olmasa şifrə sahələrini doldurun.");
+    return;
+  }
+
+  if (newPassword !== confirmNewPassword) {
+    setErrorMessage("Yeni şifrələr eyni olmalıdır.");
+    return;
+  }
+
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+])[A-Za-z\d!@#$%^&*()_+]{7,15}$/;
+
+  if (!passwordRegex.test(newPassword)) {
+    setErrorMessage("Şifrə 7-15 simvol uzunluğunda olmalı, ən az bir böyük hərf, bir kiçik hərf, bir rəqəm və bir işarə (!@#$%^&*()_+) ehtiva etməlidir.");
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/password/reset/confirm/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": token,
+      },
+      body: JSON.stringify({
+        new_password: newPassword,
+        new_password_two: confirmNewPassword,
+      }),
+    });
+
+    console.log("Raw Response Status:", response.status, response.statusText);
+    const result = await response.json();
+    console.log("Password Reset Confirm Response:", result);
+
+    if (response.ok) {
+      setShowSuccessPopup(true); // ✅ Burada popup aktiv edilir
+      localStorage.removeItem("reset_token");
+      setErrorMessage('');
+    } else {
+      const errorMsg =
+        result.detail ||
+        result.message ||
+        (result.messages && result.messages[0]?.message) ||
+        "Şifrə dəyişdirilmə zamanı naməlum xəta baş verdi.";
+      setErrorMessage(errorMsg);
+      console.error("API returned an error:", result);
     }
-    
+  } catch (error) {
+    setErrorMessage("Şəbəkə xətası: İnternet bağlantınızı yoxlayın və ya serverə çatıla bilmir.");
+    console.error("Network error during password reset confirm:", error);
+  }
+}
+
+
+
+
   };
+  
+  
 
   const handleBack = () => {
     setErrorMessage('');
@@ -201,6 +218,12 @@ export default function EditPassword() {
     setCountdown(59);
     setIsCountingDown(true);
     setErrorMessage('');
+  
+    if (!mobileNumber.match(/^\d{9}$/)) {
+      setErrorMessage("Mobil nömrə düzgün daxil edilməyib. Nümunə: 501234567.");
+      return;
+    }
+  
     try {
       const response = await fetch(`${API_BASE_URL}/password/reset/request/`, {
         method: "POST",
@@ -208,16 +231,16 @@ export default function EditPassword() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          mobile_number: `+994${mobileNumber.trim()}`
+          mobile_number: mobileNumber.trim() 
         })
       });
-
+  
       const data = await response.json();
       console.log("Resend OTP Response:", data);
-
+  
       if (response.ok) {
         alert("Yeni OTP kodu göndərildi!");
-        setErrorMessage(''); 
+        setErrorMessage('');
       } else {
         const serverErrorMessage = data.detail ||
                                    (data.mobile_number && data.mobile_number[0]) ||
@@ -229,6 +252,7 @@ export default function EditPassword() {
       console.error("Server error during OTP resend:", error);
     }
   };
+  
 
   const handleNewPasswordChange = (e) => {
     setNewPassword(e.target.value);
@@ -243,7 +267,6 @@ export default function EditPassword() {
   const handleSuccessOk = () => {
     setShowSuccessPopup(false);
     navigateTo('/login');
-    // Reset all states to default for a fresh start
     setCurrentStep(1);
     setMobileNumber('');
     setOtpCode(Array(6).fill(''));
@@ -251,7 +274,7 @@ export default function EditPassword() {
     setConfirmNewPassword('');
     setErrorMessage('');
     setTemporaryToken('');
-    localStorage.removeItem("reset_token"); // Ensure localStorage is cleared too
+    localStorage.removeItem("reset_token");
   };
 
   const handleRegisterClick = () => {
@@ -319,7 +342,7 @@ export default function EditPassword() {
                 className="cursor-pointer w-[65%] h-[2.7rem] bg-[#1A4862] text-white text-[15px] font-semibold rounded-lg hover:bg-blue-900 transition-colors flex items-center justify-center gap-2"
               >
                 SMS göndər
-                <img src="./sms.svg" alt="sms" />
+                <img src="/sms.svg" alt="sms" />
               </button>
             </div>
           </>
@@ -387,20 +410,20 @@ export default function EditPassword() {
                 Yeni şifrə <span className="text-red-500 text-lg">*</span>
               </label>
               <div className="relative">
-                <input
-                  type={showNewPassword ? "text" : "password"}
-                  id="newPassword"
-                  placeholder="Şifrənizi daxil edin"
-                  value={newPassword}
-                  onChange={handleNewPasswordChange}
-                  className="w-full h-[3.2rem] border border-[#C3C8D1] rounded-lg outline-none p-3 pr-10 text-[#1A4862] placeholder-[#656F83]"
-                />
-                <img
-                  src="/eye.svg" // Use absolute path if not working
-                  alt="toggle password visibility"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 cursor-pointer"
-                  onClick={toggleNewPasswordVisibility}
-                />
+              <input
+  type={showNewPassword ? "text" : "password"}
+  id="newPassword"
+  placeholder="Şifrənizi daxil edin"
+  value={newPassword}
+  onChange={handleNewPasswordChange}
+  className="w-full h-[3.2rem] border border-[#C3C8D1] rounded-lg outline-none p-3 pr-10 text-[#1A4862] placeholder-[#656F83]"
+/>
+<img
+  src={showNewPassword ? "/eye.svg" : "/invisible.svg"}
+  alt="toggle password visibility"
+  className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 cursor-pointer"
+  onClick={toggleNewPasswordVisibility}
+/>
               </div>
             </div>
 
@@ -409,20 +432,20 @@ export default function EditPassword() {
                 Şifrəni təkrar yazın <span className="text-red-500 text-lg">*</span>
               </label>
               <div className="relative">
-                <input
-                  type={showConfirmNewPassword ? "text" : "password"}
-                  id="confirmNewPassword"
-                  placeholder="Şifrənizi təkrar daxil edin"
-                  value={confirmNewPassword}
-                  onChange={handleConfirmNewPasswordChange}
-                  className="w-full h-[3.2rem] border border-[#C3C8D1] rounded-lg outline-none p-3 pr-10 text-[#1A4862] placeholder-[#656F83]"
-                />
-                <img
-                  src="/invisible.svg" // Use absolute path if not working
-                  alt="toggle password visibility"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 cursor-pointer"
-                  onClick={toggleConfirmNewPasswordVisibility}
-                />
+              <input
+  type={showConfirmNewPassword ? "text" : "password"}
+  id="confirmNewPassword"
+  placeholder="Şifrənizi təkrar daxil edin"
+  value={confirmNewPassword}
+  onChange={handleConfirmNewPasswordChange}
+  className="w-full h-[3.2rem] border border-[#C3C8D1] rounded-lg outline-none p-3 pr-10 text-[#1A4862] placeholder-[#656F83]"
+/>
+<img
+  src={showConfirmNewPassword ? "/eye.svg" : "/invisible.svg"}
+  alt="toggle password visibility"
+  className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 cursor-pointer"
+  onClick={toggleConfirmNewPasswordVisibility}
+/>
               </div>
             </div>
             <div className="flex gap-2 justify-center">
@@ -460,7 +483,7 @@ export default function EditPassword() {
             <h3 className="text-2xl font-bold text-[#1A4862] mb-3">Şifrəniz uğurla bərpa edildi!</h3>
             <button
               onClick={handleSuccessOk}
-              className="px-8 py-3 bg-[#1A4862] text-white text-lg font-semibold rounded-lg hover:bg-blue-900 transition-colors flex items-center justify-center gap-2 mx-auto"
+              className="cursor-pointer px-8 py-3 bg-[#1A4862] text-white text-lg font-semibold rounded-lg hover:bg-blue-900 transition-colors flex items-center justify-center gap-2 mx-auto"
             >
               <img src="/user.svg" alt="login icon" className="w-5 h-5" /> Daxil ol
             </button>
